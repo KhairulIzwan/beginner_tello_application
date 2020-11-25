@@ -4,7 +4,7 @@
 ## {Description}: Recognizing Apriltag (Detecting Single AprilTag Only!)
 ################################################################################
 ## Author: Khairul Izwan Bin Kamsani
-## Version: {2}.{0}.{0}
+## Version: {1}.{0}.{0}
 ## Email: {wansnap@gmail.com}
 ################################################################################
 
@@ -34,21 +34,18 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Imu
 from sensor_msgs.msg import CameraInfo
 
+from beginner_tello_application.msg import objCenter as objCoord
 from beginner_tello_application.msg import apriltagData
-from beginner_tello_application.msg import missionData
-from beginner_tello_application.msg import centerData
 
 import rospy
 
 class AprilTagCenter:
 	def __init__(self):
 		# Initialization
-		self.center = centerData()
+		self.objectCoord = objCoord()
 		
-		self.apriltagData_received = False
-		self.missionData_received = False
-		
-		self.centerStatus = False
+		self.apriltagStatus_received = False
+		self.missionID_received = False
 		
 		rospy.logwarn("AprilTag3 Center Node [ONLINE]...")
 		
@@ -56,8 +53,7 @@ class AprilTagCenter:
 		rospy.on_shutdown(self.cbShutdown)
 		
 		# Subscribe to CompressedImage msg
-#		self.telloCameraInfo_topic = "/tello/camera/camera_info"
-		self.telloCameraInfo_topic = "/cv_camera/camera_info"
+		self.telloCameraInfo_topic = "/tello/camera/camera_info"
 		self.telloCameraInfo_sub = rospy.Subscriber(
 						self.telloCameraInfo_topic, 
 						CameraInfo, 
@@ -72,19 +68,19 @@ class AprilTagCenter:
 					self.cbAprilTagData
 					)
 					
-		# Subscribe to missionData msg
-		self.missionData_topic = "/missionData"
-		self.missionData_sub = rospy.Subscriber(
-					self.missionData_topic, 
-					missionData, 
-					self.cbMissionData
+		# Subscribe to Int64 msg
+		self.missionID_topic = "/missionID"
+		self.missionID_sub = rospy.Subscriber(
+					self.missionID_topic, 
+					Int64, 
+					self.cbmissionID
 					)
 					
 		# Publish to objCenter msg
-		self.centerData_topic = "/centerData"
-		self.centerData_pub = rospy.Publisher(
-					self.centerData_topic, 
-					centerData, 
+		self.objCoord_topic = "/apriltagCoord"
+		self.objCoord_pub = rospy.Publisher(
+					self.objCoord_topic, 
+					objCoord, 
 					queue_size=10
 					)
 					
@@ -121,26 +117,20 @@ class AprilTagCenter:
 			print(e)
 
 		if self.apriltagStatus is not None:
-			self.apriltagData_received = True
+			self.apriltagStatus_received = True
 		else:
-			self.apriltagData_received = False
+			self.apriltagStatus_received = False
 			
-	def cbMissionData(self, msg):
+	def cbmissionID(self, msg):
 		try:
-			self.missionList = msg.missionList
-			self.missionCount = msg.missionCount
-			self.missionGate = msg.missionGate
-			self.missionIndex = msg.missionIndex
-			self.missionSearch = msg.missionSearch
-			self.missionStatus = msg.missionStatus
-			
+			self.missionID = msg.data
 		except AttributeError as e:
 			print(e)
 			
-		if self.missionList is not None:
-			self.missionData_received = True
+		if self.missionID is not None:
+			self.missionID_received = True
 		else:
-			self.missionData_received = False
+			self.missionID_received = False
 			
 	# Convert image to OpenCV format
 	def cbCameraInfo(self, msg):
@@ -148,39 +138,52 @@ class AprilTagCenter:
 		self.imgHeight = msg.height
 		
 	def cbAprilTagCenter(self):
-		# AprilTag3 Data Received: True
-		if self.apriltagData_received:
-		
-			# Mission Data Received: True
-			if self.missionData_received:
+		# AprilTag3 Status Received: True
+		if self.apriltagStatus_received:
+			if self.missionID_received:
+				# Find index of missionCount
+				self.cbFindList()
 			
 				# AprilTag3 Status: True
-				if self.missionStatus:
-					try:
-						self.center.centerStatus = True
-						self.center.centerX = int(self.apriltagCenter_x[self.missionIndex])
-						self.center.centerY = int(self.apriltagCenter_y[self.missionIndex])
-					except IndexError:
-						pass
+				if self.apriltagStatus:
+			
+					# AprilTag3 List: Empty
+					# Object Coordinate will be set at Center of Image
+					if not self.apriltagID:
+						self.objectCoord.centerX = self.imgWidth // 2
+						self.objectCoord.centerY = self.imgHeight // 2
+					
+					# AprilTag3 List: Not Empty	
+					else:
+						try:
+							self.objectCoord.centerX = int(self.apriltagCenter_x[self.index])
+							self.objectCoord.centerY = int(self.apriltagCenter_y[self.index])
+						except AttributeError as e:
+							pass
+					
 				# Is AprilTag3 Detected: False
 				# Object Coordinate will be set at Center of Image
 				else:
-					self.center.centerStatus = False
-					self.center.centerX = self.imgWidth // 2
-					self.center.centerY = self.imgHeight // 2
-					
-				self.centerData_pub.publish(self.center)
+					self.objectCoord.centerX = self.imgWidth // 2
+					self.objectCoord.centerY = self.imgHeight // 2
 				
-			# Mission Data Received: False
-			else:
-				# TODO: Information related node not yet running
-				rospy.logwarn("AprilTag3 Mission Node [OFFLINE]...")
-				
-		# AprilTag3 Data Received: False
-		else:
-			# TODO: Information related node not yet running
-			rospy.logwarn("AprilTag3 Detection Node [OFFLINE]...")
+				self.objCoord_pub.publish(self.objectCoord)
 			
+			else:
+				pass
+			
+		# Is AprilTag3 Received: False
+		# Ignored
+		else:
+			pass
+		
+	# Find index of missionCount
+	def cbFindList(self):
+		try:
+			self.index = self.apriltagID.index(self.missionID)
+		except ValueError:
+			pass
+				
 	# rospy shutdown callback
 	def cbShutdown(self):
 		rospy.logerr("AprilTag3 Center Node [OFFLINE]...")

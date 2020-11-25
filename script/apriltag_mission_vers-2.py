@@ -13,8 +13,6 @@
 import time
 
 # import the necessary ROS packages
-import rospy
-
 from std_msgs.msg import String
 from std_msgs.msg import Bool
 from std_msgs.msg import Int64
@@ -27,6 +25,8 @@ from geometry_msgs.msg import Twist
 
 from beginner_tello_application.msg import apriltagData
 from beginner_tello_application.msg import missionData
+
+import rospy
 
 class ApriltagMission:
 	def __init__(self):
@@ -201,7 +201,6 @@ class ApriltagMission:
 			self.mission.missionIndex = self.cbFindList(self.mission.missionGate)
 			
 			# TODO: If exist, set missionON
-			# TODO: Required trackingStatus
 			if self.mission.missionIndex != -1 and self.missionComplete == False:
 				self.mission.missionStatus = True
 				self.mission.missionSearch = False
@@ -210,6 +209,12 @@ class ApriltagMission:
 				self.mission.missionSearch = True
 				
 			self.missionData_pub.publish(self.mission)
+				
+			# AprilTag3 List: Empty
+			if not self.apriltagID:
+				# TODO: What the drone should do if apriltag detected
+				# not what as required
+				pass
 			
 			# TODO: Mission Executed
 			if self.mission.missionStatus:
@@ -219,45 +224,45 @@ class ApriltagMission:
 #					self.telloTakeoff_pub.publish(self.takeoff)
 					rospy.loginfo("Takeoff")
 					
-#					self.missionCount += 1
+					self.missionCount += 1
 					self.missionComplete = False
 					self.mission.missionStatus = False
 					
-#				# Mission: 1 : Gate 1 : Land
-#				elif self.mission.missionGate == 1:
-##					self.telloLand_pub.publish(self.land)
-#					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
-#					
-#					self.missionCount += 1
-#					self.missionComplete = False
-#					self.mission.missionStatus = False
-#					
-#				# Mission: 2 : Gate 2 : Land
-#				elif self.mission.missionGate == 2:
-##					self.telloLand_pub.publish(self.land)
-#					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
-#					
-#					self.missionCount += 1
-#					self.missionComplete = False
-#					self.mission.missionStatus = False
-#					
-#				# Mission: 3 : Gate 3 : Land
-#				elif self.mission.missionGate == 3:
-##					self.telloLand_pub.publish(self.land)
-#					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
-#					
-#					self.missionCount += 1
-#					self.missionComplete = False
-#					self.mission.missionStatus = False
-#					
-#				# Mission: 4 : Gate 4 : Land
-#				elif self.mission.missionGate == 3:
-##					self.telloLand_pub.publish(self.land)
-#					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
-#					
-#					self.missionCount += 1
-#					self.missionComplete = False
-#					self.mission.missionStatus = False
+				# Mission: 1 : Gate 1 : Land
+				elif self.mission.missionGate == 1:
+#					self.telloLand_pub.publish(self.land)
+					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
+					
+					self.missionCount += 1
+					self.missionComplete = False
+					self.mission.missionStatus = False
+					
+				# Mission: 2 : Gate 2 : Land
+				elif self.mission.missionGate == 2:
+#					self.telloLand_pub.publish(self.land)
+					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
+					
+					self.missionCount += 1
+					self.missionComplete = False
+					self.mission.missionStatus = False
+					
+				# Mission: 3 : Gate 3 : Land
+				elif self.mission.missionGate == 3:
+#					self.telloLand_pub.publish(self.land)
+					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
+					
+					self.missionCount += 1
+					self.missionComplete = False
+					self.mission.missionStatus = False
+					
+				# Mission: 4 : Gate 4 : Land
+				elif self.mission.missionGate == 3:
+#					self.telloLand_pub.publish(self.land)
+					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
+					
+					self.missionCount += 1
+					self.missionComplete = False
+					self.mission.missionStatus = False
 					
 			else:
 				# TODO: Ask the drone to rotate searching for gates

@@ -13,8 +13,6 @@
 import time
 
 # import the necessary ROS packages
-import rospy
-
 from std_msgs.msg import String
 from std_msgs.msg import Bool
 from std_msgs.msg import Int64
@@ -26,27 +24,53 @@ from sensor_msgs.msg import Imu
 from geometry_msgs.msg import Twist
 
 from beginner_tello_application.msg import apriltagData
-from beginner_tello_application.msg import missionData
+
+import rospy
 
 class ApriltagMission:
 	def __init__(self):
 		# Initialization
-		self.mission = missionData()
+		self.missionID = Int64()
+		self.takeoff = Empty()
+		self.land = Empty()
+		self.missionSearch = Bool()
 		
-		self.apriltagData_received = False
-		self.missionStatus = False
-		self.missionSearch = True
+		self.apriltagStatus_received = False
+		self.missionON = False
 		self.missionComplete = False
 		
 		self.missionCount = 0
+		self.missionLoc = -1
 		
-		self.missionList = [0, 1, 2, 3, 4]
+		self.gateList = [0, 1, 2, 3, 4]
 		
 		rospy.logwarn("Apriltag3 Mission Node [ONLINE]...")
 		
 		# rospy shutdown
 		rospy.on_shutdown(self.cbShutdown)
 		
+		# Subscribe to TelloStatus msg
+		self.telloStatus_topic = "/tello/status"
+		self.telloStatus_sub = rospy.Subscriber(
+					self.telloStatus_topic, 
+					TelloStatus, 
+					self.cbTelloStatus
+					)
+					
+		# Subscribe to Odometry msg
+		self.telloOdom_topic = "/tello/odom"
+		self.telloOdom_sub = rospy.Subscriber(
+					self.telloOdom_topic, 
+					Odometry, 
+					self.cbTelloOdometry)
+					
+		# Subscribe to PoseWithCovariance msg
+		self.telloIMU_topic = "/tello/imu"
+		self.telloIMU_sub = rospy.Subscriber(
+					self.telloIMU_topic, 
+					Imu, 
+					self.cbTelloIMU)
+					
 		# Subscribe to apriltagData msg
 		self.apriltagData_topic = "/apriltagData"
 		self.apriltagData_sub = rospy.Subscriber(
@@ -55,11 +79,32 @@ class ApriltagMission:
 					self.cbAprilTagData
 					)
 					
-		# Publish to missionData msg
-		self.missionData_topic = "/missionData"
-		self.missionData_pub = rospy.Publisher(
-					self.missionData_topic, 
-					missionData, 
+		# Publish to Int64 msg
+		self.missionID_topic = "/missionID"
+		self.missionID_pub = rospy.Publisher(
+					self.missionID_topic, 
+					Int64, 
+					queue_size=10)
+					
+		# Publish to Bool msg
+		self.missionSearch_topic = "/missionSearch"
+		self.missionSearch_pub = rospy.Publisher(
+					self.missionSearch_topic, 
+					Bool, 
+					queue_size=10)
+					
+		# Publish to Empty msg
+		self.telloTakeoff_topic = "/tello/takeoff"
+		self.telloTakeoff_pub = rospy.Publisher(
+					self.telloTakeoff_topic, 
+					Empty, 
+					queue_size=10)
+					
+		# Publish to Empty msg
+		self.telloLand_topic = "/tello/land"
+		self.telloLand_pub = rospy.Publisher(
+					self.telloLand_topic, 
+					Empty, 
 					queue_size=10)
 					
 		# Allow up to one second to connection
@@ -95,9 +140,9 @@ class ApriltagMission:
 			print(e)
 
 		if self.apriltagStatus is not None:
-			self.apriltagData_received = True
+			self.apriltagStatus_received = True
 		else:
-			self.apriltagData_received = False
+			self.apriltagStatus_received = False
 			
 	# Get TelloIMU info
 	def cbTelloIMU(self, msg):
@@ -187,88 +232,76 @@ class ApriltagMission:
 		self.cmd_fast_mode = msg.cmd_fast_mode
 
 	def cbAprilTagTakeOffLand(self):
-		self.mission.missionList = self.missionList
-		self.mission.missionSearch = self.missionSearch
-		self.mission.missionCount = self.missionCount
-		
 		# AprilTag3 Status Received: True
-		if self.apriltagData_received:
+		if self.apriltagStatus_received:
+		# TODO: Start a mission
+			# Find index of Gate
+			self.index = self.cbFindList(self.gateList[self.missionCount])
+			self.missionID.data = self.index
+			self.missionID_pub.publish(self.missionID)
 			
-			# Find the gates of AprilTag3 need to be processed
-			self.mission.missionGate = self.mission.missionList[self.missionCount]
-			
-			# Find the gates indexs in apriltagData msg
-			self.mission.missionIndex = self.cbFindList(self.mission.missionGate)
-			
-			# TODO: If exist, set missionON
-			# TODO: Required trackingStatus
-			if self.mission.missionIndex != -1 and self.missionComplete == False:
-				self.mission.missionStatus = True
-				self.mission.missionSearch = False
-			elif self.mission.missionIndex == -1 and self.missionComplete == True:
-				self.mission.missionStatus = False
-				self.mission.missionSearch = True
+			if self.index != -1 and self.missionComplete == False:
+				self.missionLoc = self.index
+				self.missionON = True
+			elif self.index == -1 and self.missionComplete == True:
+				self.missionON = False
 				
-			self.missionData_pub.publish(self.mission)
+			rospy.logwarn("Index: %s" % self.index)
+			rospy.logwarn("Mission No: %s" % self.missionLoc)
+			rospy.logwarn("On Mission: %s" % self.missionON)
 			
-			# TODO: Mission Executed
-			if self.mission.missionStatus:
-				
-				# Mission: 0 : Gate 0 : Takeoff
-				if self.mission.missionGate == 0:
-#					self.telloTakeoff_pub.publish(self.takeoff)
-					rospy.loginfo("Takeoff")
-					
-#					self.missionCount += 1
-					self.missionComplete = False
-					self.mission.missionStatus = False
-					
-#				# Mission: 1 : Gate 1 : Land
-#				elif self.mission.missionGate == 1:
-##					self.telloLand_pub.publish(self.land)
-#					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
+#			# AprilTag3 Status: True
+#			if self.apriltagStatus:
+#			
+#				# AprilTag3 List: Empty
+#				if not self.apriltagID:
+#					# TODO: What the drone should do if apriltag detected
+#					# not what as required
+#					pass
 #					
-#					self.missionCount += 1
-#					self.missionComplete = False
-#					self.mission.missionStatus = False
-#					
-#				# Mission: 2 : Gate 2 : Land
-#				elif self.mission.missionGate == 2:
-##					self.telloLand_pub.publish(self.land)
-#					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
-#					
-#					self.missionCount += 1
-#					self.missionComplete = False
-#					self.mission.missionStatus = False
-#					
-#				# Mission: 3 : Gate 3 : Land
-#				elif self.mission.missionGate == 3:
-##					self.telloLand_pub.publish(self.land)
-#					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
-#					
-#					self.missionCount += 1
-#					self.missionComplete = False
-#					self.mission.missionStatus = False
-#					
-#				# Mission: 4 : Gate 4 : Land
-#				elif self.mission.missionGate == 3:
-##					self.telloLand_pub.publish(self.land)
-#					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
-#					
-#					self.missionCount += 1
-#					self.missionComplete = False
-#					self.mission.missionStatus = False
-					
-			else:
-				# TODO: Ask the drone to rotate searching for gates
-				rospy.logwarn("Searching for Gates: %s" % self.mission.missionGate)
+#				# AprilTag3 List: Not Empty
+#				else:
+#					if index != -1:
+#						self.missionSearch.data = False
+#						
+#						# Mission: 0 : Gate 0 : Takeoff
+#						if self.missionCount == 0 and self.apriltagID[self.index] == 0 and self.missionON == True and self.is_flying == False:
+##							self.telloTakeoff_pub.publish(self.takeoff)
+#							rospy.loginfo("Takeoff")
+#							
+#							self.missionCount += 1
+#							self.missionComplete = True
+#							
+#							
+##						# Mission: 1 : Gate 1 : Land
+##						elif self.missionCount == 1 and self.apriltagID[index] == 1 and self.is_flying == True:
+##							self.telloLand_pub.publish(self.land)
+##							rospy.loginfo("Gate 1 Mission")
+##							
+##							self.missionCount += 1
+#							
+##						# Mission: 2 : Gate 2 : Land
+##						elif self.missionCount == 2 and self.apriltagID[index] == 2 and self.is_flying == True:
+##							self.telloLand_pub.publish(self.land)
+##							rospy.loginfo("Land")
+##							
+##							self.missionCount += 1
+#					else:
+#						# TODO: Ask the drone to rotate searching for gates
+#						rospy.loginfo("Searching for Gate...%d" % self.missionCount)
+#						self.missionSearch.data = True
+#						
+#					self.missionSearch_pub.publish(self.missionSearch)
+#			else:
+#				# TODO: 
+#				pass
 				
 		# AprilTag3 Status Received: False
 		else:
 			# TODO: Information related node not yet running
 			rospy.logwarn("AprilTag3 Detection Node [OFFLINE]...")
 			
-	# Find the index of AprilTag3 Detected
+	# Find index of missionCount
 	def cbFindList(self, gates):
 		try:
 			return self.apriltagID.index(gates)

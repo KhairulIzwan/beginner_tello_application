@@ -52,6 +52,8 @@ find_package(catkin REQUIRED COMPONENTS
  add_message_files(
    FILES
    apriltagData.msg
+   missionData.msg
+   centerData.msg
  )
 
 ## Generate services in the 'srv' folder
