@@ -1,0 +1,10 @@
+<launch>
+
+	<!-- AprilTag3 Mission -->
+	<node	pkg="beginner_tello_application" 
+		name="apriltag_mission" 
+		type="apriltag_mission.py"> 
+		<!-- output="screen"> -->
+	</node>
+
+</launch>

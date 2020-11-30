@@ -9,3 +9,5 @@ int64 missionIndex
 bool missionSearch
 
 bool missionStatus
+
+bool missionDone

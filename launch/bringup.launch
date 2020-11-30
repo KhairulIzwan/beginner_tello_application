@@ -1,0 +1,12 @@
+<launch>
+	
+	<!-- AprilTag3 Detection -->
+	<include file="$(find beginner_tello_application)/launch/apriltag_detection.launch"/>
+		
+	<!-- AprilTag3 Mission -->
+	<include file="$(find beginner_tello_application)/launch/apriltag_mission.launch"/>
+	
+	<!-- AprilTag3 Center -->
+	<include file="$(find beginner_tello_application)/launch/apriltag_center.launch"/>
+	
+</launch>

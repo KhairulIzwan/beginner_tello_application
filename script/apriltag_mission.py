@@ -10,23 +10,13 @@
 ################################################################################
 
 # import the necessary Python packages
-import time
 
 # import the necessary ROS packages
 import rospy
 
-from std_msgs.msg import String
-from std_msgs.msg import Bool
-from std_msgs.msg import Int64
-from std_msgs.msg import Empty
-
-from tello_driver.msg import TelloStatus
-from nav_msgs.msg import Odometry
-from sensor_msgs.msg import Imu
-from geometry_msgs.msg import Twist
-
 from beginner_tello_application.msg import apriltagData
 from beginner_tello_application.msg import missionData
+from beginner_tello_application.msg import trackingData
 
 class ApriltagMission:
 	def __init__(self):
@@ -34,13 +24,15 @@ class ApriltagMission:
 		self.mission = missionData()
 		
 		self.apriltagData_received = False
+#		self.trackingData_received = False
+		
 		self.missionStatus = False
 		self.missionSearch = True
 		self.missionComplete = False
 		
 		self.missionCount = 0
 		
-		self.missionList = [0, 1, 2, 3, 4]
+		self.missionList = [0, 6, 1]
 		
 		rospy.logwarn("Apriltag3 Mission Node [ONLINE]...")
 		
@@ -53,6 +45,14 @@ class ApriltagMission:
 					self.apriltagData_topic, 
 					apriltagData, 
 					self.cbAprilTagData
+					)
+					
+		# Subscribe to trackingData msg
+		self.trackingData_topic = "/trackingData"
+		self.trackingData_sub = rospy.Subscriber(
+					self.trackingData_topic, 
+					trackingData, 
+					self.cbTrackingData
 					)
 					
 		# Publish to missionData msg
@@ -99,92 +99,8 @@ class ApriltagMission:
 		else:
 			self.apriltagData_received = False
 			
-	# Get TelloIMU info
-	def cbTelloIMU(self, msg):
-		self.orientationXIMU = msg.orientation.x
-		self.orientationYIMU = msg.orientation.y
-		self.orientationZIMU = msg.orientation.z
-		self.orientationWIMU = msg.orientation.w
-		
-		self.angularXIMU = msg.angular_velocity.x
-		self.angularYIMU = msg.angular_velocity.y
-		self.angularZIMU = msg.angular_velocity.z
-		
-		self.linearXIMU = msg.linear_acceleration.x
-		self.linearYIMU = msg.linear_acceleration.y
-		self.linearZIMU = msg.linear_acceleration.z
-		
-	# Get TelloOdometry info
-	def cbTelloOdometry(self, msg):
-		self.poseX = msg.pose.pose.position.x
-		self.poseY = msg.pose.pose.position.y
-		self.poseZ = msg.pose.pose.position.z
-		self.orientationX = msg.pose.pose.orientation.x
-		self.orientationY = msg.pose.pose.orientation.y
-		self.orientationZ = msg.pose.pose.orientation.z
-		self.orientationW = msg.pose.pose.orientation.w
-		
-		self.linearX = msg.twist.twist.linear.x
-		self.linearY = msg.twist.twist.linear.y
-		self.linearZ = msg.twist.twist.linear.z
-		self.angularX = msg.twist.twist.angular.x
-		self.angularY = msg.twist.twist.angular.y
-		self.angularZ = msg.twist.twist.angular.z
-
-	# Get TelloStatus info
-	def cbTelloStatus(self, msg):
-		# Non-negative; calibrated to takeoff altitude; auto-calib if 
-		# falls below takeoff height; inaccurate near ground
-		self.height_m = msg.height_m
-
-		self.speed_northing_mps = msg.speed_northing_mps
-		self.speed_easting_mps = msg.speed_easting_mps
-		self.speed_horizontal_mps = msg.speed_horizontal_mps
-		self.speed_vertical_mps = msg.speed_vertical_mps
-
-		self.flight_time_sec = msg.flight_time_sec
-
-		self.imu_state = msg.imu_state
-		self.pressure_state = msg.pressure_state
-		self.down_visual_state = msg.down_visual_state
-		self.power_state = msg.power_state
-		self.battery_state = msg.battery_state
-		self.gravity_state = msg.gravity_state
-		self.wind_state = msg.wind_state
-
-		self.imu_calibration_state = msg.imu_calibration_state
-		self.battery_percentage = msg.battery_percentage
-		self.drone_fly_time_left_sec = msg.drone_fly_time_left_sec
-		self.drone_battery_left_sec = msg.drone_battery_left_sec
-
-		self.is_flying = msg.is_flying
-		self.is_on_ground = msg.is_on_ground
-		# is_em_open True in flight, False when landed
-		self.is_em_open = msg.is_em_open
-		self.is_drone_hover = msg.is_drone_hover
-		self.is_outage_recording = msg.is_outage_recording
-		self.is_battery_low = msg.is_battery_low
-		self.is_battery_lower = msg.is_battery_lower
-		self.is_factory_mode = msg.is_factory_mode
-
-		# flymode=1: landed; =6: flying
-		self.fly_mode = msg.fly_mode
-		self.throw_takeoff_timer_sec = msg.throw_takeoff_timer_sec
-		self.camera_state = msg.camera_state
-
-		self.electrical_machinery_state = msg.electrical_machinery_state
-
-		self.front_in = msg.front_in
-		self.front_out = msg.front_out
-		self.front_lsc = msg.front_lsc
-
-		self.temperature_height_m = msg.temperature_height_m
-
-		self.cmd_roll_ratio = msg.cmd_roll_ratio
-		self.cmd_pitch_ratio = msg.cmd_pitch_ratio
-		self.cmd_yaw_ratio = msg.cmd_yaw_ratio
-		self.cmd_vspeed_ratio = msg.cmd_vspeed_ratio
-		self.cmd_fast_mode = msg.cmd_fast_mode
+	def cbTrackingData(self, msg):
+		self.trackingStatus = msg.trackingStatus
 
 	def cbAprilTagTakeOffLand(self):
 		self.mission.missionList = self.missionList
@@ -195,78 +111,44 @@ class ApriltagMission:
 		if self.apriltagData_received:
 			
 			# Find the gates of AprilTag3 need to be processed
-			self.mission.missionGate = self.mission.missionList[self.missionCount]
-			
+			if self.missionCount < len(self.missionList):
+				self.mission.missionGate = self.mission.missionList[self.missionCount]
+				self.mission.missionDone = False
+			else:
+				self.mission.missionDone = True
+				pass
+				
 			# Find the gates indexs in apriltagData msg
 			self.mission.missionIndex = self.cbFindList(self.mission.missionGate)
-			
+		
 			# TODO: If exist, set missionON
-			# TODO: Required trackingStatus
-			if self.mission.missionIndex != -1 and self.missionComplete == False:
-				self.mission.missionStatus = True
+			if self.mission.missionIndex != -1 and not self.missionComplete:
 				self.mission.missionSearch = False
-			elif self.mission.missionIndex == -1 and self.missionComplete == True:
-				self.mission.missionStatus = False
+				self.mission.missionStatus = True
+			elif self.mission.missionIndex == -1 and self.missionComplete:
 				self.mission.missionSearch = True
+				self.mission.missionStatus = False
 				
 			self.missionData_pub.publish(self.mission)
-			
+		
 			# TODO: Mission Executed
+			# TODO: Required trackingStatus
 			if self.mission.missionStatus:
+#				self.mission.missionSearch = False
 				
-				# Mission: 0 : Gate 0 : Takeoff
-				if self.mission.missionGate == 0:
-#					self.telloTakeoff_pub.publish(self.takeoff)
-					rospy.loginfo("Takeoff")
-					
-#					self.missionCount += 1
+				if not self.trackingStatus:
+					self.missionCount += 1
 					self.missionComplete = False
+#					self.mission.missionSearch = True
 					self.mission.missionStatus = False
-					
-#				# Mission: 1 : Gate 1 : Land
-#				elif self.mission.missionGate == 1:
-##					self.telloLand_pub.publish(self.land)
-#					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
-#					
-#					self.missionCount += 1
-#					self.missionComplete = False
-#					self.mission.missionStatus = False
-#					
-#				# Mission: 2 : Gate 2 : Land
-#				elif self.mission.missionGate == 2:
-##					self.telloLand_pub.publish(self.land)
-#					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
-#					
-#					self.missionCount += 1
-#					self.missionComplete = False
-#					self.mission.missionStatus = False
-#					
-#				# Mission: 3 : Gate 3 : Land
-#				elif self.mission.missionGate == 3:
-##					self.telloLand_pub.publish(self.land)
-#					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
-#					
-#					self.missionCount += 1
-#					self.missionComplete = False
-#					self.mission.missionStatus = False
-#					
-#				# Mission: 4 : Gate 4 : Land
-#				elif self.mission.missionGate == 3:
-##					self.telloLand_pub.publish(self.land)
-#					rospy.loginfo("Gate %s Mission" % self.mission.missionGate)
-#					
-#					self.missionCount += 1
-#					self.missionComplete = False
-#					self.mission.missionStatus = False
-					
+				else:
+					pass
 			else:
-				# TODO: Ask the drone to rotate searching for gates
-				rospy.logwarn("Searching for Gates: %s" % self.mission.missionGate)
-				
+				pass
+					
 		# AprilTag3 Status Received: False
 		else:
-			# TODO: Information related node not yet running
-			rospy.logwarn("AprilTag3 Detection Node [OFFLINE]...")
+			pass
 			
 	# Find the index of AprilTag3 Detected
 	def cbFindList(self, gates):

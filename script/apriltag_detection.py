@@ -14,9 +14,6 @@ import imutils
 import apriltag
 
 # import the necessary ROS packages
-from std_msgs.msg import String
-from std_msgs.msg import Bool
-from std_msgs.msg import Float32
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import CompressedImage
 
@@ -64,9 +61,9 @@ class AprilTagDetection:
 		# rospy shutdown
 		rospy.on_shutdown(self.cbShutdown)
 		
-		# Subscribe to CompressedImage msg /cv_camera/image_raw
-#		self.telloImage_topic = "/tello/image_raw/compressed"
-		self.telloImage_topic = "/cv_camera/image_raw/compressed"
+		# Subscribe to CompressedImage msg
+		self.telloImage_topic = "/tello/image_raw/compressed"
+#		self.telloImage_topic = "/cv_camera/image_raw/compressed"
 		self.telloImage_sub = rospy.Subscriber(
 						self.telloImage_topic, 
 						CompressedImage, 
@@ -215,43 +212,9 @@ class AprilTagDetection:
 			
 			self.apriltagData_pub.publish(self.apriltagData)
 			
-#			cv2.putText(
-#				self.cv_image, 
-#				"AprilTag3: %s" % (self.apriltagData.apriltagStatus), 
-#				(20, 40), 
-#				self.fontFace, 
-#				self.fontScale * 4, 
-#				(0, 0, 255), 
-#				self.thickness * 2, 
-#				self.lineType, 
-#				self.bottomLeftOrigin)
-#			
-#			cv2.putText(
-#				self.cv_image, 
-#				"N AprilTag3: %d" % (len(self.apriltagData.apriltagID)), 
-#				(20, 80), 
-#				self.fontFace, 
-#				self.fontScale * 4, 
-#				(0, 0, 255), 
-#				self.thickness * 2, 
-#				self.lineType, 
-#				self.bottomLeftOrigin)
-#			
-#			cv2.putText(
-#				self.cv_image, 
-#				"AprilTag3 List: %s" % (self.apriltagData.apriltagID), 
-#				(20, 120), 
-#				self.fontFace, 
-#				self.fontScale * 4, 
-#				(0, 0, 255), 
-#				self.thickness * 2, 
-#				self.lineType, 
-#				self.bottomLeftOrigin)
-		
 		# Tello Node: OFFLINE	
 		else:
-			# TODO: Information from related node not yet running
-			rospy.logwarn("Tello Node [OFFLINE]...")
+			pass
 			
 	def distance_to_camera(self, perWidth):
 		# compute and return the distance from the maker to the camera

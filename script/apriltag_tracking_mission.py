@@ -9,80 +9,69 @@
 ################################################################################
 
 # import the necessary Python packages
-from __future__ import print_function
-import sys
-import cv2
 import time
-import numpy as np
-import imutils
-import random
-import apriltag
 
 # import the necessary ROS packages
-from std_msgs.msg import String
-from std_msgs.msg import Float32
-from std_msgs.msg import Bool
-from std_msgs.msg import UInt8
-from std_msgs.msg import Empty
-
-from geometry_msgs.msg import Twist
+import rospy
 
 from sensor_msgs.msg import CameraInfo
-from sensor_msgs.msg import Imu
-
-from nav_msgs.msg import Odometry
-
-from tello_driver.msg import TelloStatus
+from geometry_msgs.msg import Twist
+from std_msgs.msg import Empty
 
 from beginner_tello_application.msg import apriltagData
 from beginner_tello_application.msg import missionData
 from beginner_tello_application.msg import centerData
+from beginner_tello_application.msg import trackingData
 
 from beginner_tello_application.pid import PID
 from beginner_tello_application.makesimpleprofile import map as mapped
 
-import rospy
-
 class AprilTagTrackingMission:
 	def __init__(self):
+		# Initialization
+		self.tracking = trackingData()
 		self.telloCmdVel = Twist()
-		self.land = Empty()
-		self.flip = UInt8()
-
-		self.apriltagData_received = False
+		self.telloTakeoff = Empty()
+		self.telloLand = Empty()
+		
 		self.missionData_received = False
-
-		self.stateTwo = False
-		self.stateFlip = False
-		self.stateLand = False
-
-		self.MAX_LIN_VEL = 1.5
-		self.MAX_LIN_VEL_S2 = 0.4
-		self.MAX_LIN_VEL_S = 0.6
-		self.MAX_ANG_VEL = 1.0
+		
+		self.missionSet = False
+		
+		self.trackingStatus = False
+		
+		self.stateArrived = False
+		self.stateStopped = False
+		self.stateActivity = False
+		
+		# speed parameter
+		self.MAX_LIN_VEL = 0.50
+		self.MAX_LIN_VEL_S2 = 0.20
+		self.MAX_LIN_VEL_S = 0.50
+		self.MAX_ANG_VEL = 0.50
 
 		# set PID values for pan
-		self.panP = 3
+		self.panP = 2
 		self.panI = 0
 		self.panD = 0.001
 
 		# set PID values for tilt
-		self.tiltP = 3
+		self.tiltP = 2
 		self.tiltI = 0
 		self.tiltD = 0.001
 
 		# set PID values for yaw
-		self.yawP = 3
+		self.yawP = 2
 		self.yawI = 0
 		self.yawD = 0.001
 
 		# set PID values for distance
 		self.distanceP = 3
 		self.distanceI = 0
-		self.distanceD = 0.001
+		self.distanceD = 0.0001
 
 		# set PID values for height_m
-		self.heightP = 3
+		self.heightP = 2
 		self.heightI = 0
 		self.heightD = 0.001
 
@@ -98,15 +87,15 @@ class AprilTagTrackingMission:
 		self.yawPID.initialize()
 		self.distancePID.initialize()
 		self.heightPID.initialize()
-
+		
 		rospy.logwarn("AprilTag3 Tracking Mission Node [ONLINE]...")
-
+		
 		# rospy shutdown
 		rospy.on_shutdown(self.cbShutdown)
-
+		
 		# Subscribe to CompressedImage msg
-#		self.telloCameraInfo_topic = "/tello/camera/camera_info"
-		self.telloCameraInfo_topic = "/cv_camera/camera_info"
+		self.telloCameraInfo_topic = "/tello/camera/camera_info"
+#		self.telloCameraInfo_topic = "/cv_camera/camera_info"
 		self.telloCameraInfo_sub = rospy.Subscriber(
 						self.telloCameraInfo_topic, 
 						CameraInfo, 
@@ -129,6 +118,36 @@ class AprilTagTrackingMission:
 					self.cbMissionData
 					)
 					
+		# Subscribe to centerData msg
+		self.centerData_topic = "/centerData"
+		self.centerData_sub = rospy.Subscriber(
+					self.centerData_topic, 
+					centerData, 
+					self.cbCenterData
+					)
+					
+		# Publish to trackingData msg
+		self.trackingData_topic = "/trackingData"
+		self.trackingData_pub = rospy.Publisher(
+					self.trackingData_topic, 
+					trackingData, 
+					queue_size=10
+					)
+					
+		# Publish to Empty msg
+		self.telloTakeoff_topic = "/tello/takeoff"
+		self.telloTakeoff_pub = rospy.Publisher(
+					self.telloTakeoff_topic, 
+					Empty, 
+					queue_size=10)
+
+		# Publish to Empty msg
+		self.telloLand_topic = "/tello/land"
+		self.telloLand_pub = rospy.Publisher(
+					self.telloLand_topic, 
+					Empty, 
+					queue_size=10)
+					
 		# Publish to Twist msg
 		self.telloCmdVel_topic = "/tello/cmd_vel"
 		self.telloCmdVel_pub = rospy.Publisher(
@@ -137,57 +156,34 @@ class AprilTagTrackingMission:
 					queue_size=10
 					)
 					
-		# Publish to Empty msg
-		self.telloLand_topic = "/tello/land"
-		self.telloLand_pub = rospy.Publisher(
-					self.telloLand_topic, 
-					Empty, 
-					queue_size=10)
-					
-		# Publish to UInt8 msg
-		self.telloFlip_topic = "/tello/flip"
-		self.telloFlip_pub = rospy.Publisher(
-					self.telloFlip_topic, 
-					UInt8, 
-					queue_size=10)
-					
 		# Allow up to one second to connection
 		rospy.sleep(1)
 		
 	# Is AprilTag3 Data Received?
 	def cbAprilTagData(self, msg):
-		try:
-			self.apriltagStatus = msg.apriltagStatus
-			self.apriltagID = msg.apriltagID
-			self.apriltagCenter_x = msg.apriltagCenter_x
-			self.apriltagCenter_y = msg.apriltagCenter_y
-			self.apriltagHomography_00 =msg.apriltagHomography_00
-			self.apriltagHomography_01 = msg.apriltagHomography_01
-			self.apriltagHomography_02 = msg.apriltagHomography_02
-			self.apriltagHomography_10 = msg.apriltagHomography_10
-			self.apriltagHomography_11 = msg.apriltagHomography_11
-			self.apriltagHomography_12 = msg.apriltagHomography_12
-			self.apriltagHomography_20 = msg.apriltagHomography_20
-			self.apriltagHomography_21 = msg.apriltagHomography_21
-			self.apriltagHomography_22 = msg.apriltagHomography_22
-			self.apriltagCorner_x1 = msg.apriltagCorner_x1
-			self.apriltagCorner_y1 = msg.apriltagCorner_y1
-			self.apriltagCorner_x2 = msg.apriltagCorner_x2
-			self.apriltagCorner_y2 = msg.apriltagCorner_y2
-			self.apriltagCorner_x3 = msg.apriltagCorner_x3
-			self.apriltagCorner_y3 = msg.apriltagCorner_y3
-			self.apriltagCorner_x4 = msg.apriltagCorner_x4
-			self.apriltagCorner_y4 = msg.apriltagCorner_y4
-			self.apriltagDistance = msg.apriltagDistance
-			
-		except AttributeError as e:
-			print(e)
-
-		if self.apriltagStatus is not None:
-			self.apriltagStatus_received = True
-		else:
-			self.apriltagStatus_received = False
-			
+		self.apriltagStatus = msg.apriltagStatus
+		self.apriltagID = msg.apriltagID
+		self.apriltagCenter_x = msg.apriltagCenter_x
+		self.apriltagCenter_y = msg.apriltagCenter_y
+		self.apriltagHomography_00 =msg.apriltagHomography_00
+		self.apriltagHomography_01 = msg.apriltagHomography_01
+		self.apriltagHomography_02 = msg.apriltagHomography_02
+		self.apriltagHomography_10 = msg.apriltagHomography_10
+		self.apriltagHomography_11 = msg.apriltagHomography_11
+		self.apriltagHomography_12 = msg.apriltagHomography_12
+		self.apriltagHomography_20 = msg.apriltagHomography_20
+		self.apriltagHomography_21 = msg.apriltagHomography_21
+		self.apriltagHomography_22 = msg.apriltagHomography_22
+		self.apriltagCorner_x1 = msg.apriltagCorner_x1
+		self.apriltagCorner_y1 = msg.apriltagCorner_y1
+		self.apriltagCorner_x2 = msg.apriltagCorner_x2
+		self.apriltagCorner_y2 = msg.apriltagCorner_y2
+		self.apriltagCorner_x3 = msg.apriltagCorner_x3
+		self.apriltagCorner_y3 = msg.apriltagCorner_y3
+		self.apriltagCorner_x4 = msg.apriltagCorner_x4
+		self.apriltagCorner_y4 = msg.apriltagCorner_y4
+		self.apriltagDistance = msg.apriltagDistance
+		
 	def cbMissionData(self, msg):
 		try:
 			self.missionList = msg.missionList
@@ -196,6 +192,7 @@ class AprilTagTrackingMission:
 			self.missionIndex = msg.missionIndex
 			self.missionSearch = msg.missionSearch
 			self.missionStatus = msg.missionStatus
+			self.missionDone = msg.missionDone
 			
 		except AttributeError as e:
 			print(e)
@@ -205,156 +202,86 @@ class AprilTagTrackingMission:
 		else:
 			self.missionData_received = False
 			
+	def cbCenterData(self, msg):
+		self.centerStatus = msg.centerStatus
+		self.centerX = msg.centerX
+		self.centerY = msg.centerY
+		
 	# Convert image to OpenCV format
-	def cbCameraInfo(self, msg):
+	def cbCameraInfo(self, msg):	
 		self.imgWidth = msg.width
 		self.imgHeight = msg.height
 		
+	# Function to convert number into string 
+	# Switcher is dictionary data type here 
+	def cbMissionSwitcher(self, argument): 
+		switcher = { 
+			0: "takeoff", 
+			1: "land", 
+#			3: "obstacle_3", 
+#			4: "obstacle_4", 
+#			5: "obstacle_5", 
+			6: "obstacle_6", 
+#			7: "obstacle_7", 
+#			8: "obstacle_8", 
+#			9: "obstacle_9", 
+			10: "obstacle_10", 
+			}
+	
+		# get() method of dictionary data type returns  
+		# value of passed argument if it is present  
+		# in dictionary otherwise second argument will 
+		# be assigned as default value of passed argument 
+		return switcher.get(argument, "nothing")
+		
+	def cbTelloStop(self):
+		self.telloCmdVel.linear.x = 0.00
+		self.telloCmdVel.linear.y = 0.00
+		self.telloCmdVel.linear.z = 0.00
+		
+		self.telloCmdVel.angular.x = 0.00
+		self.telloCmdVel.angular.y = 0.00
+		self.telloCmdVel.angular.z = 0.00
+		
+	def cbTelloSearch(self):
+		self.telloCmdVel.linear.x = 0.00
+		self.telloCmdVel.linear.y = 0.00
+		self.telloCmdVel.linear.z = 0.00
+		
+		self.telloCmdVel.angular.x = 0.00
+		self.telloCmdVel.angular.y = 0.00
+		self.telloCmdVel.angular.z = 0.40
+		
+	def cbTelloTakeOff(self):	
+		self.telloTakeoff_pub.publish(self.telloTakeoff)
+		time.sleep(3)
+		self.trackingStatus = False
+		
+	def cbTelloLand(self):
+		self.telloLand_pub.publish(self.telloLand)
+		time.sleep(3)
+		self.trackingStatus = False
+		
 	# show information callback
 	def cbPIDerrCenter(self):
-		self.panErr, self.panOut = self.cbPIDprocess(self.panPID, self.objectCoordX, self.imgWidth // 2)
-		self.tiltErr, self.tiltOut = self.cbPIDprocess(self.tiltPID, self.objectCoordY, self.imgHeight // 2)
-		self.yawErr, self.yawOut = self.cbPIDprocess(self.yawPID, self.objectCoordX, self.imgWidth // 2)
-		# TODO: How to fixed the distance
-		self.distanceErr, self.distanceOut = self.cbPIDprocess(self.distancePID, self.isApriltagDistance[0], 1.5)
+		try:
+			self.panErr, self.panOut = self.cbPIDprocess(self.panPID, self.centerX, self.imgWidth // 2)
+			self.tiltErr, self.tiltOut = self.cbPIDprocess(self.tiltPID, self.centerY, self.imgHeight // 2)
+			self.yawErr, self.yawOut = self.cbPIDprocess(self.yawPID, self.centerX, self.imgWidth // 2)
+			# TODO: How to fixed the distance
+			self.distanceErr, self.distanceOut = self.cbPIDprocess(self.distancePID, self.apriltagDistance[self.missionIndex], 1.0)
+		except IndexError as e:
+			pass
 
 	def cbPIDprocess(self, pid, objCoord, centerCoord):
 		# calculate the error
 		error = centerCoord - objCoord
-
+		
 		# update the value
 		output = pid.update(error)
-
+		
 		return error, output
-
-	def cbAprilTagTracking(self):
-		# AprilTag3 Status Received: True
-		if self.apriltagStatus_received:
-			if self.missionID_received:
-				# Find index of missionCount
-				self.cbFindList()
-				# is AprilTag3 detected? : True
-				if self.apriltagStatus:
-			
-					# is AprilTag3 detected listed? : False
-					if not self.apriltagID:
-						pass
-						
-					# is AprilTag3 detected listed? : True
-					else:
-				
-						# is AprilTag3 detected listed it NOT 0 : Takeoff or 1 : Land
-						if self.apriltagID[self.index] == 1:
-							# Calculate the PID error
-							self.cbPIDerrCenter()
-
-							# Mapped the speed according to PID error calculated
-							panSpeed = mapped(
-								abs(self.panOut), 
-								0, 
-								self.imgWidth // 2, 
-								0, 
-								self.MAX_LIN_VEL_S2)
-
-							tiltSpeed = mapped(
-								abs(self.tiltOut), 
-								0, 
-								self.imgHeight // 2, 
-								0, 
-								self.MAX_LIN_VEL)
-
-							yawSpeed = mapped(
-								abs(self.yawOut), 
-								0, 
-								self.imgWidth // 2, 
-								0, 
-								self.MAX_ANG_VEL)
-
-							distanceSpeed = mapped(
-								abs(self.distanceOut), 
-								0, 
-								1.5, 
-								0, 
-								self.MAX_LIN_VEL_S)
-
-							# Constrain the speed : speed in range
-							panSpeed = self.constrain(
-								panSpeed, 
-								-self.MAX_LIN_VEL_S2, 
-								self.MAX_LIN_VEL_S2)
-
-							tiltSpeed = self.constrain(
-								tiltSpeed, 
-								-self.MAX_LIN_VEL, 
-								self.MAX_LIN_VEL)
-
-							yawSpeed = self.constrain(
-								yawSpeed, 
-								-self.MAX_ANG_VEL, 
-								self.MAX_ANG_VEL)
-
-							distanceSpeed = self.constrain(
-								distanceSpeed, 
-								-self.MAX_LIN_VEL_S, 
-								self.MAX_LIN_VEL_S)
-
-							if self.panOut < -10:
-								self.telloCmdVel.linear.x = panSpeed
-							elif self.panOut > 10:
-								self.telloCmdVel.linear.x = -panSpeed
-							else:
-								self.telloCmdVel.linear.x = 0
-
-							if self.tiltOut > 10:
-								self.telloCmdVel.linear.z = tiltSpeed
-							elif self.tiltOut < -10:
-								self.telloCmdVel.linear.z = -tiltSpeed
-							else:
-								self.telloCmdVel.linear.z = 0
-
-							if self.yawOut > 10:
-								self.telloCmdVel.angular.z = -yawSpeed
-							elif self.yawOut < -10:
-								self.telloCmdVel.angular.z = yawSpeed
-							else:
-								self.telloCmdVel.angular.z = 0
-
-							if self.distanceOut <= 0:
-								self.telloCmdVel.linear.y = distanceSpeed
-							else:
-								self.telloCmdVel.linear.y = 0
-								self.stateTwo = True
-								rospy.logerr("ARRIVED...")
-
-	#						self.telloCmdVel.linear.x = 0.0
-	#						self.telloCmdVel.linear.y = 0.0
-	#						self.telloCmdVel.linear.z = 0.0
-						
-							self.telloCmdVel.angular.x = 0.0
-							self.telloCmdVel.angular.y = 0.0
-	#						self.telloCmdVel.angular.z = 0.0
-
-							self.telloCmdVel_pub.publish(self.telloCmdVel)
-						else:
-							self.telloCmdVel.linear.x = 0.0
-							self.telloCmdVel.linear.y = 0.0
-							self.telloCmdVel.linear.z = 0.0
-						
-							self.telloCmdVel.angular.x = 0.0
-							self.telloCmdVel.angular.y = 0.0
-							self.telloCmdVel.angular.z = 0.0
-						
-							self.telloCmdVel_pub.publish(self.telloCmdVel)
-							
-				# is AprilTag3 detected? : False
-				else:
-					pass
-			else:
-				pass
-		# AprilTag3 Status Received: False
-		else:
-			pass
-			
+		
 	def constrain(self, input, low, high):
 		if input < low:
 			input = low
@@ -365,11 +292,214 @@ class AprilTagTrackingMission:
 			
 		return input
 		
-	# Find index of missionCount
-	def cbFindList(self):
+	def cbTelloTarget(self):
+		# Calculate the PID error
+		self.cbPIDerrCenter()
+		
+		# Mapped the speed according to PID error calculated
+		panSpeed = mapped(
+			abs(self.panOut), 
+			0, 
+			self.imgWidth // 2, 
+			0, 
+			self.MAX_LIN_VEL_S2)
+			
+		tiltSpeed = mapped(
+			abs(self.tiltOut), 
+			0, 
+			self.imgHeight // 2, 
+			0, 
+			self.MAX_LIN_VEL)
+			
+		yawSpeed = mapped(
+			abs(self.yawOut), 
+			0, 
+			self.imgWidth // 2, 
+			0, 
+			self.MAX_ANG_VEL)
+			
+		distanceSpeed = mapped(
+			abs(self.distanceOut), 
+			0, 
+			1.5, 
+			0, 
+			self.MAX_LIN_VEL_S)
+			
+		# Constrain the speed : speed in range
+		panSpeed = self.constrain(
+			panSpeed, 
+			-self.MAX_LIN_VEL_S2, 
+			self.MAX_LIN_VEL_S2)
+			
+		tiltSpeed = self.constrain(
+			tiltSpeed, 
+			-self.MAX_LIN_VEL, 
+			self.MAX_LIN_VEL)
+			
+		yawSpeed = self.constrain(
+			yawSpeed, 
+			-self.MAX_ANG_VEL, 
+			self.MAX_ANG_VEL)
+			
+		distanceSpeed = self.constrain(
+			distanceSpeed, 
+			-self.MAX_LIN_VEL_S, 
+			self.MAX_LIN_VEL_S)
+			
+		if self.panOut < -10:
+			self.telloCmdVel.linear.x = panSpeed
+		elif self.panOut > 10:
+			self.telloCmdVel.linear.x = -panSpeed
+		else:
+			self.telloCmdVel.linear.x = 0
+			
+		if self.tiltOut > 10:
+			self.telloCmdVel.linear.z = tiltSpeed
+		elif self.tiltOut < -10:
+			self.telloCmdVel.linear.z = -tiltSpeed
+		else:
+			self.telloCmdVel.linear.z = 0
+			
+		if self.yawOut > 10:
+			self.telloCmdVel.angular.z = -yawSpeed
+		elif self.yawOut < -10:
+			self.telloCmdVel.angular.z = yawSpeed
+		else:
+			self.telloCmdVel.angular.z = 0
+			
+		if self.distanceOut <= 0:
+			self.telloCmdVel.linear.y = distanceSpeed
+		else:
+			self.telloCmdVel.linear.y = 0
+			self.stateArrived = True
+#			rospy.logerr("ARRIVED...")
+			
+		# self.telloCmdVel.linear.x = 0.0
+		# self.telloCmdVel.linear.y = 0.0
+		# self.telloCmdVel.linear.z = 0.0
+		
+		self.telloCmdVel.angular.x = 0.0
+		self.telloCmdVel.angular.y = 0.0
+		# self.telloCmdVel.angular.z = 0.0
+		
+	# Find the index of AprilTag3 Detected
+	def cbFindList(self, gates):
 		try:
-			self.index = self.apriltagID.index(self.missionID)
+			return self.apriltagID.index(gates)
 		except ValueError:
+			return -1
+			
+	def cbAprilTagTracking(self):
+		self.tracking.trackingStatus = self.trackingStatus
+		
+		# Mission Data Received: True
+		if self.missionData_received:
+		
+			# Continue mission until missionList completed!
+			if not self.missionDone:
+			
+				# Initialize self.trackingStatus = True
+				self.trackingStatus = True
+			
+				# TODO: Determine mission type
+				self.missionSwitcher = self.cbMissionSwitcher(self.missionGate)
+#				rospy.loginfo(self.missionSwitcher)
+				
+				# TODO: Maybe problem here!
+				if not self.missionSearch  and self.missionStatus:
+					self.cbTelloStop()
+					
+					self.missionSet = True
+					
+					if self.missionSwitcher == "takeoff":
+						rospy.loginfo("TakeOff...")
+						self.cbTelloTakeOff()
+						
+						time.sleep(2)
+						
+					elif self.missionSwitcher == "land" and self.missionSet:
+						if self.stateArrived == False and self.stateStopped == False:
+							rospy.loginfo("Go to Target %s..." % self.missionGate)
+							self.cbTelloTarget()
+							
+							time.sleep(2)
+
+						elif self.stateArrived == True and self.stateStopped == False:
+							rospy.loginfo("Stop at Target %s..." % self.missionGate)
+							self.cbTelloStop()
+							
+							self.stateStopped = True
+							self.stateActivity = True
+							
+							time.sleep(2)
+							
+						elif self.stateActivity == True and self.stateStopped == True:
+							rospy.loginfo("Land Target %s..." % self.missionGate)
+							self.cbTelloLand()
+							
+#							time.sleep(2)
+							
+							self.stateArrived = False
+							self.stateStopped = False
+							
+							self.missionSet = False
+							
+							time.sleep(2)
+							
+					elif self.missionSwitcher == "obstacle_6" and self.missionSet:
+						if self.stateArrived == False and self.stateStopped == False:
+							rospy.loginfo("Go to Target %s..." % self.missionGate)
+							self.cbTelloTarget()
+							
+							time.sleep(2)
+							
+						elif self.stateArrived == True and self.stateStopped == False:
+							rospy.loginfo("Stop at Target %s..." % self.missionGate)
+							self.cbTelloStop()
+							
+							self.stateStopped = True
+							self.stateActivity = True
+							
+							time.sleep(2)
+							
+						elif self.stateActivity == True and self.stateStopped == True:
+							rospy.loginfo("Complete Target %s..." % self.missionGate)
+							
+#							time.sleep(2)
+							
+							self.trackingStatus = False
+							self.stateArrived = False
+							self.stateStopped = False
+							
+							self.missionSet = False
+							
+							time.sleep(2)
+							
+				elif self.missionSearch and not self.missionStatus:
+					
+					# TODO:
+					
+					# Find the gates indexs in apriltagData msg
+					self.gates = self.cbFindList(self.missionGate)
+					
+					if not self.apriltagStatus or (self.gates == -1):
+#						rospy.logerr("Searching for Gate %s..." % self.missionGate)
+						self.cbTelloSearch()
+					else:
+#						rospy.logwarn("Found Gate %s..." % self.missionGate)
+						self.cbTelloStop()
+						time.sleep(2)
+#						self.missionSet = False
+						
+				self.trackingData_pub.publish(self.tracking)
+				self.telloCmdVel_pub.publish(self.telloCmdVel)
+				
+			# missionList completed!
+			else:
+				pass
+				
+		# Mission Data Received: False
+		else:
 			pass
 			
 	# rospy shutdown callback

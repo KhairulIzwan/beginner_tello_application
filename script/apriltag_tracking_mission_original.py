@@ -54,6 +54,7 @@ class AprilTagTracking:
 		self.stateFlip = False
 		self.stateLand = False
 
+		# speed parameter
 		self.MAX_LIN_VEL = 1.5
 		self.MAX_LIN_VEL_S2 = 0.4
 		self.MAX_LIN_VEL_S = 0.6

@@ -1,0 +1,10 @@
+<launch>
+
+	<!-- AprilTag3 Center -->
+	<node	pkg="beginner_tello_application" 
+		name="apriltag_center" 
+		type="apriltag_center.py"> 
+		<!-- output="screen"> -->
+	</node>
+
+</launch>

@@ -54,6 +54,7 @@ find_package(catkin REQUIRED COMPONENTS
    apriltagData.msg
    missionData.msg
    centerData.msg
+   trackingData.msg
  )
 
 ## Generate services in the 'srv' folder
